@@ -22,6 +22,9 @@
 #include "dcClass.h"
 #include "py_panda.h"
 
+#include "configVariableBool.h"
+extern ConfigVariableBool astron_support;
+
 /**
  * This class defines the extension methods for DCClass, which are called
  * instead of any C++ methods with the same prototype.

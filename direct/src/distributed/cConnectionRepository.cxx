@@ -303,30 +303,61 @@ check_datagram() {
       return true;
     }
 
-    switch (_msg_type) {
+    // FIXME: This is despicable...
+    // There must be a better way of doing
+    // this...
+    if (astron_support) { // Astron
+      switch (_msg_type) {
 #ifdef HAVE_PYTHON
-    case CLIENT_OBJECT_SET_FIELD:
-    case STATESERVER_OBJECT_SET_FIELD:
-      if (_handle_c_updates) {
-        if (_has_owner_view) {
-          if (!handle_update_field_owner()) {
-            return false;
+      case CLIENT_OBJECT_SET_FIELD:
+      case STATESERVER_OBJECT_SET_FIELD:
+        if (_handle_c_updates) {
+          if (_has_owner_view) {
+            if (!handle_update_field_owner()) {
+              return false;
+            }
+          } else {
+            if (!handle_update_field()) {
+              return false;
+            }
           }
         } else {
-          if (!handle_update_field()) {
-            return false;
-          }
+          // Let the caller (Python) deal with this update.
+          return true;
         }
-      } else {
-        // Let the caller (Python) deal with this update.
-        return true;
-      }
-      break;
+        break;
 #endif  // HAVE_PYTHON
 
-    default:
-      // Some unknown message; let the caller deal with it.
-      return true;
+      default:
+        // Some unknown message; let the caller deal with it.
+        return true;
+      }
+    } else { // OTP
+      switch (_msg_type) {
+#ifdef HAVE_PYTHON
+      case CLIENT_OBJECT_UPDATE_FIELD:
+      case STATESERVER_OBJECT_UPDATE_FIELD:
+        if (_handle_c_updates) {
+          if (_has_owner_view) {
+            if (!handle_update_field_owner()) {
+              return false;
+            }
+          } else {
+            if (!handle_update_field()) {
+              return false;
+            }
+          }
+        } else {
+          // Let the caller (Python) deal with this update.
+          return true;
+        }
+        break;
+#endif  // HAVE_PYTHON
+
+      default:
+        // Some unknown message; let the caller deal with it.
+        return true;
+      }
     }
   }
 
@@ -899,11 +930,19 @@ describe_message(std::ostream &out, const string &prefix,
 
     packer.RAW_UNPACK_CHANNEL();  // msg_sender
     msg_type = packer.raw_unpack_uint16();
-    is_update = (msg_type == STATESERVER_OBJECT_SET_FIELD);
+    if (astron_support) {
+      is_update = (msg_type == STATESERVER_OBJECT_SET_FIELD);
+    } else {
+      is_update = (msg_type == STATESERVER_OBJECT_UPDATE_FIELD);
+    }
 
   } else {
     msg_type = packer.raw_unpack_uint16();
-    is_update = (msg_type == CLIENT_OBJECT_SET_FIELD);
+    if (astron_support) {
+      is_update = (msg_type == CLIENT_OBJECT_SET_FIELD);
+    } else {
+      is_update = (msg_type == CLIENT_OBJECT_UPDATE_FIELD);
+    }
   }
 
   if (!is_update) {
