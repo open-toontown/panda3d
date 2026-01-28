@@ -98,6 +98,21 @@ struct Dtool_PyTypedObject {
 #define DtoolInstance_INIT_PTR(obj, ptr) { ((Dtool_PyInstDef *)obj)->_ptr_to_object = (void*)(ptr); }
 #define DtoolInstance_UPCAST(obj, type) (((Dtool_PyInstDef *)(obj))->_My_Type->_Dtool_UpcastInterface((obj), &(type)))
 
+// ** HACK ** allert.. Need to keep a runtime type dictionary ... that is
+// forward declared of typed object.  We rely on the fact that typed objects
+// are uniquly defined by an integer.
+
+#if PY_VERSION_HEX >= 0x030d0000
+class Dtool_TypeMap : public std::map<std::string, Dtool_PyTypedObject *> {
+public:
+  PyMutex _lock { 0 };
+};
+#else
+typedef std::map<std::string, Dtool_PyTypedObject *> Dtool_TypeMap;
+#endif
+
+EXPCL_PYPANDA Dtool_TypeMap *Dtool_GetGlobalTypeMap();
+
 class DtoolProxy {
 public:
   mutable PyObject *_self;
