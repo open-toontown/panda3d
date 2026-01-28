@@ -219,6 +219,14 @@ INLINE PyObject *_PyLong_Lshift(PyObject *a, size_t shiftby) {
 }
 #endif
 
+#ifndef PY_VECTORCALL_ARGUMENTS_OFFSET
+#  define PY_VECTORCALL_ARGUMENTS_OFFSET (((size_t)1) << (8 * sizeof(size_t) - 1))
+#endif
+
+#if PY_VERSION_HEX < 0x030800B1
+#  define PyVectorcall_NARGS(n) ((n) & ~PY_VECTORCALL_ARGUMENTS_OFFSET)
+#endif
+
 /* Python 3.9 */
 
 #if PY_VERSION_HEX < 0x030900A4 && !defined(Py_IS_TYPE)
@@ -227,6 +235,10 @@ INLINE PyObject *_PyLong_Lshift(PyObject *a, size_t shiftby) {
 
 #ifndef PyCFunction_CheckExact
 #  define PyCFunction_CheckExact(op) (Py_IS_TYPE(op, &PyCFunction_Type))
+#endif
+
+#if PY_VERSION_HEX < 0x030900A4
+#  define PyObject_Vectorcall(callable, args, nargsf, kwnames) (_PyObject_Vectorcall((callable), (args), (nargsf), (kwnames)))
 #endif
 
 #if PY_VERSION_HEX < 0x03090000
@@ -366,6 +378,12 @@ PyDict_GetItemStringRef(PyObject *mp, const char *key, PyObject **result) {
 #  define Py_END_CRITICAL_SECTION() }
 #  define Py_BEGIN_CRITICAL_SECTION2(a, b) {
 #  define Py_END_CRITICAL_SECTION2() }
+#endif
+
+/* Python 3.14 */
+
+#if PY_VERSION_HEX < 0x030E00A8
+#  define PyUnstable_Object_IsUniquelyReferenced(op) (Py_REFCNT((op)) == 1)
 #endif
 
 /* Other Python implementations */

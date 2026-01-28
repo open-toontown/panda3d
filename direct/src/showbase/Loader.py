@@ -2,9 +2,13 @@
 sound, music, shaders and fonts from disk.
 """
 
+from __future__ import annotations
+
 __all__ = ['Loader']
 
 from panda3d.core import (
+    AsyncTask,
+    AudioManager,
     ConfigVariableBool,
     Filename,
     FontPool,
@@ -13,6 +17,7 @@ from panda3d.core import (
     ModelFlattenRequest,
     ModelNode,
     ModelPool,
+    MovieAudio,
     NodePath,
     PandaNode,
     SamplerState,
@@ -24,13 +29,20 @@ from panda3d.core import (
 from panda3d.core import Loader as PandaLoader
 from direct.directnotify.DirectNotifyGlobal import directNotify
 from direct.showbase.DirectObject import DirectObject
+from . import ShowBase
 import warnings
 import sys
+import os
+from typing import Any, Callable, Iterable, Union
+
+# Type aliases for loadModel, loadSound, etc. annotations
+_ModelPath = Union[str, Filename, os.PathLike]
+_SoundPath = Union[str, Filename, os.PathLike, MovieAudio]
 
 # You can specify a phaseChecker callback to check
 # a modelPath to see if it is being loaded in the correct
 # phase
-phaseChecker = None
+phaseChecker: Callable[[_ModelPath, LoaderOptions], object] | None = None
 
 
 class Loader(DirectObject):
@@ -49,16 +61,23 @@ class Loader(DirectObject):
         # This indicates that this class behaves like a Future.
         _asyncio_future_blocking = False
 
-        def __init__(self, loader, numObjects, gotList, callback, extraArgs):
+        def __init__(
+            self,
+            loader: Loader | None,
+            numObjects: int,
+            gotList: bool,
+            callback: Callable[..., object] | None,
+            extraArgs: list,
+        ) -> None:
             self._loader = loader
-            self.objects = [None] * numObjects
+            self.objects: list[Any | None] = [None] * numObjects
             self.gotList = gotList
             self.callback = callback
             self.extraArgs = extraArgs
-            self.requests = set()
-            self.requestList = []
+            self.requests: set[AsyncTask] = set()
+            self.requestList: list[AsyncTask] = []
 
-        def gotObject(self, index, object):
+        def gotObject(self, index: int, object) -> None:
             self.objects[index] = object
 
             if not self.requests:
@@ -79,7 +98,7 @@ class Loader(DirectObject):
                 self.requests = None
                 self.requestList = None
 
-        def cancelled(self):
+        def cancelled(self) -> bool:
             "Returns true if the request was cancelled."
             return self.requestList is None
 
@@ -87,7 +106,7 @@ class Loader(DirectObject):
             "Returns true if all the requests were finished or cancelled."
             return not self.requests
 
-        def result(self):
+        def result(self) -> Any:
             "Returns the results, suspending the thread to wait if necessary."
             for r in list(self.requests):
                 r.wait()
@@ -126,26 +145,26 @@ class Loader(DirectObject):
                 yield await req
 
     # special methods
-    def __init__(self, base):
+    def __init__(self, base: ShowBase.ShowBase | None = None) -> None:
         self.base = base
         self.loader = PandaLoader.getGlobalPtr()
 
-        self._requests = {}
+        self._requests: dict[AsyncTask, tuple[Loader._Callback, int]] = {}
 
         self.hook = "async_loader_%s" % (Loader.loaderIndex)
         Loader.loaderIndex += 1
-        self.accept(self.hook, self.__gotAsyncObject)
 
-        self._loadPythonFileTypes()
-
-    def destroy(self):
+    def destroy(self) -> None:
         self.ignore(self.hook)
         self.loader.stopThreads()
         del self.base
-        del self.loader
+
+    def _init_base(self, base: ShowBase.ShowBase) -> None:
+        self.base = base
+        self.accept(self.hook, self.__gotAsyncObject)
 
     @classmethod
-    def _loadPythonFileTypes(cls):
+    def _loadPythonFileTypes(cls) -> None:
         if cls._loadedPythonFileTypes:
             return
 
@@ -168,10 +187,18 @@ class Loader(DirectObject):
             cls._loadedPythonFileTypes = True
 
     # model loading funcs
-    def loadModel(self, modelPath, loaderOptions = None, noCache = None,
-                  allowInstance = False, okMissing = None,
-                  callback = None, extraArgs = [], priority = None,
-                  blocking = None):
+    def loadModel(
+        self,
+        modelPath: _ModelPath | list[_ModelPath] | tuple[_ModelPath, ...] | set[_ModelPath],
+        loaderOptions: LoaderOptions | None = None,
+        noCache: bool | None = None,
+        allowInstance: bool = False,
+        okMissing: bool | None = None,
+        callback: Callable[..., object] | None = None,
+        extraArgs: list = [],
+        priority: int | None = None,
+        blocking: bool | None = None,
+    ) -> Any:
         """
         Attempts to load a model or models from one or more relative
         pathnames.  If the input modelPath is a string (a single model
@@ -229,6 +256,10 @@ class Loader(DirectObject):
         """
 
         assert Loader.notify.debug("Loading model: %s" % (modelPath,))
+
+        if not self._loadedPythonFileTypes:
+            self._loadPythonFileTypes()
+
         if loaderOptions is None:
             loaderOptions = LoaderOptions()
         else:
@@ -251,6 +282,7 @@ class Loader(DirectObject):
         if allowInstance:
             loaderOptions.setFlags(loaderOptions.getFlags() | LoaderOptions.LFAllowInstance)
 
+        modelList: Iterable[_ModelPath]
         if not isinstance(modelPath, (tuple, list, set)):
             # We were given a single model pathname.
             modelList = [modelPath]
@@ -415,6 +447,9 @@ class Loader(DirectObject):
         filename path.  Returns true on success, false on failure.  If
         a callback is used, the model is saved asynchronously, and the
         true/false status is passed to the callback function. """
+
+        if not self._loadedPythonFileTypes:
+            self._loadPythonFileTypes()
 
         if loaderOptions is None:
             loaderOptions = LoaderOptions()
@@ -942,7 +977,13 @@ class Loader(DirectObject):
         TexturePool.releaseTexture(texture)
 
     # sound loading funcs
-    def loadSfx(self, *args, **kw):
+    def loadSfx(
+        self,
+        soundPath: _SoundPath | tuple[_SoundPath, ...] | list[_SoundPath] | set[_SoundPath],
+        positional: bool = False,
+        callback: Callable[..., object] | None = None,
+        extraArgs: list = [],
+    ) -> Any:
         """Loads one or more sound files, specifically designated as a
         "sound effect" file (that is, uses the sfxManager to load the
         sound).  There is no distinction between sound effect files
@@ -952,11 +993,18 @@ class Loader(DirectObject):
         independently of the other group."""
 
         # showbase-created sfxManager should always be at front of list
+        assert self.base is not None
         if self.base.sfxManagerList:
-            return self.loadSound(self.base.sfxManagerList[0], *args, **kw)
+            return self.loadSound(self.base.sfxManagerList[0], soundPath, positional, callback, extraArgs)
         return None
 
-    def loadMusic(self, *args, **kw):
+    def loadMusic(
+        self,
+        soundPath: _SoundPath | tuple[_SoundPath, ...] | list[_SoundPath] | set[_SoundPath],
+        positional: bool = False,
+        callback: Callable[..., object] | None = None,
+        extraArgs: list = [],
+    ) -> Any:
         """Loads one or more sound files, specifically designated as a
         "music" file (that is, uses the musicManager to load the
         sound).  There is no distinction between sound effect files
@@ -964,13 +1012,20 @@ class Loader(DirectObject):
         to load the sound file, but this distinction allows the sound
         effects and/or the music files to be adjusted as a group,
         independently of the other group."""
+        assert self.base is not None
         if self.base.musicManager:
-            return self.loadSound(self.base.musicManager, *args, **kw)
+            return self.loadSound(self.base.musicManager, soundPath, positional, callback, extraArgs)
         else:
             return None
 
-    def loadSound(self, manager, soundPath, positional = False,
-                  callback = None, extraArgs = []):
+    def loadSound(
+        self,
+        manager: AudioManager,
+        soundPath: _SoundPath | tuple[_SoundPath, ...] | list[_SoundPath] | set[_SoundPath],
+        positional: bool = False,
+        callback: Callable[..., object] | None = None,
+        extraArgs: list = [],
+    ) -> Any:
         """Loads one or more sound files, specifying the particular
         AudioManager that should be used to load them.  The soundPath
         may be either a single filename, or a list of filenames.  If a
@@ -980,6 +1035,7 @@ class Loader(DirectObject):
 
         from panda3d.core import AudioLoadRequest
 
+        soundList: Iterable[_SoundPath]
         if not isinstance(soundPath, (tuple, list, set)):
             # We were given a single sound pathname or a MovieAudio instance.
             soundList = [soundPath]
@@ -1105,7 +1161,7 @@ class Loader(DirectObject):
             else:
                 callback(*(origModelList + extraArgs))
 
-    def __gotAsyncObject(self, request):
+    def __gotAsyncObject(self, request: AsyncTask) -> None:
         """A model or sound file or some such thing has just been
         loaded asynchronously by the sub-thread.  Add it to the list
         of loaded objects, and call the appropriate callback when it's

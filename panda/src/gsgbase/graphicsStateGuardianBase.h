@@ -22,6 +22,8 @@
 #include "lightMutex.h"
 #include "patomic.h"
 #include "small_vector.h"
+#include "completionToken.h"
+#include "vector_uchar.h"
 
 // A handful of forward references.
 
@@ -31,6 +33,7 @@ class GraphicsWindow;
 class NodePath;
 class GraphicsOutputBase;
 class ScreenshotRequest;
+class AsyncFuture;
 
 class VertexBufferContext;
 class IndexBufferContext;
@@ -149,6 +152,7 @@ public:
 
   virtual TextureContext *prepare_texture(Texture *tex)=0;
   virtual bool update_texture(TextureContext *tc, bool force)=0;
+  virtual bool update_texture(TextureContext *tc, bool force, CompletionToken token)=0;
   virtual void release_texture(TextureContext *tc)=0;
   virtual void release_textures(const pvector<TextureContext *> &contexts)=0;
   virtual bool extract_texture_data(Texture *tex)=0;
@@ -173,6 +177,9 @@ public:
   virtual BufferContext *prepare_shader_buffer(ShaderBuffer *data)=0;
   virtual void release_shader_buffer(BufferContext *ibc)=0;
   virtual void release_shader_buffers(const pvector<BufferContext *> &contexts)=0;
+  virtual void async_extract_shader_buffer_data(ShaderBuffer *buffer, vector_uchar &data,
+                                                size_t start = 0, size_t size = (size_t)-1,
+                                                CompletionToken token = CompletionToken())=0;
 
   virtual void dispatch_compute(int size_x, int size_y, int size_z)=0;
 

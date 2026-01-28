@@ -88,7 +88,14 @@ allocate(size_t size, TypeHandle type_handle) {
   return ptr;
 
 #else  // USE_DELETED_CHAIN
-  return PANDA_MALLOC_SINGLE(_buffer_size);
+  void *ptr = PANDA_MALLOC_SINGLE(_buffer_size);
+
+#ifdef DO_MEMORY_USAGE
+  type_handle.inc_memory_usage(TypeHandle::MC_singleton, _buffer_size);
+#endif  // DO_MEMORY_USAGE
+
+  return ptr;
+
 #endif  // USE_DELETED_CHAIN
 }
 
@@ -133,6 +140,11 @@ deallocate(void *ptr, TypeHandle type_handle) {
   _lock.unlock();
 
 #else  // USE_DELETED_CHAIN
+
+#ifdef DO_MEMORY_USAGE
+  type_handle.dec_memory_usage(TypeHandle::MC_singleton, _buffer_size);
+#endif  // DO_MEMORY_USAGE
+
   PANDA_FREE_SINGLE(ptr);
 #endif  // USE_DELETED_CHAIN
 }
@@ -155,8 +167,9 @@ get_deleted_chain(size_t buffer_size) {
 
   static MutexImpl lock;
   lock.lock();
-  static std::set<DeletedBufferChain> deleted_chains;
-  DeletedBufferChain *result = (DeletedBufferChain *)&*deleted_chains.insert(DeletedBufferChain(buffer_size)).first;
+  alignas(std::set<DeletedBufferChain>) static char storage[sizeof(std::set<DeletedBufferChain>)];
+  static auto *deleted_chains = new (storage) std::set<DeletedBufferChain>;
+  DeletedBufferChain *result = (DeletedBufferChain *)&*deleted_chains->insert(DeletedBufferChain(buffer_size)).first;
   lock.unlock();
   return result;
 }

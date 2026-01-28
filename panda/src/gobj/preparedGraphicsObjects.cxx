@@ -1381,6 +1381,15 @@ prepare_shader_buffer_now(ShaderBuffer *data, GraphicsStateGuardianBase *gsg) {
 }
 
 /**
+ * Schedules the given function to be called during the next begin_frame().
+ */
+void PreparedGraphicsObjects::
+enqueue_call(EnqueuedCall &&call) {
+  ReMutexHolder holder(_lock);
+  _enqueued_calls.push_back(std::move(call));
+}
+
+/**
  * Creates a new future for the given object.
  */
 PreparedGraphicsObjects::EnqueuedObject::
@@ -1515,9 +1524,24 @@ begin_frame(GraphicsStateGuardianBase *gsg, Thread *current_thread) {
     Texture *tex = qti->first;
     TextureContext *tc = tex->prepare_now(this, gsg);
     if (tc != nullptr) {
-      gsg->update_texture(tc, true);
-      if (qti->second != nullptr) {
-        qti->second->set_result(tc);
+      if (tex->get_num_async_transfer_buffers() == 0) {
+        gsg->update_texture(tc, true);
+        if (qti->second != nullptr) {
+          qti->second->set_result(tc);
+        }
+      } else {
+        // Async update
+        CompletionToken token;
+        if (qti->second != nullptr) {
+          token = [tc, fut = std::move(qti->second)] (bool success) {
+            if (success) {
+              fut->set_result(tc);
+            } else {
+              fut->notify_removed();
+            }
+          };
+        }
+        gsg->update_texture(tc, false, std::move(token));
       }
     }
   }
@@ -1586,6 +1610,12 @@ begin_frame(GraphicsStateGuardianBase *gsg, Thread *current_thread) {
   }
 
   _enqueued_shader_buffers.clear();
+
+  for (EnqueuedCall &call : _enqueued_calls) {
+    std::move(call)(gsg);
+  }
+
+  _enqueued_calls.clear();
 }
 
 /**

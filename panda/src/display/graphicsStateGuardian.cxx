@@ -100,6 +100,7 @@ PStatCollector GraphicsStateGuardian::_draw_primitive_pcollector("Draw:Primitive
 PStatCollector GraphicsStateGuardian::_draw_set_state_pcollector("Draw:Set State");
 PStatCollector GraphicsStateGuardian::_flush_pcollector("Draw:Flush");
 PStatCollector GraphicsStateGuardian::_compute_dispatch_pcollector("Draw:Compute dispatch");
+PStatCollector GraphicsStateGuardian::_compute_work_groups_pcollector("Compute work groups");
 
 PStatCollector GraphicsStateGuardian::_wait_occlusion_pcollector("Wait:Occlusion");
 PStatCollector GraphicsStateGuardian::_wait_timer_pcollector("Wait:Timer Queries");
@@ -244,9 +245,12 @@ GraphicsStateGuardian(CoordinateSystem internal_coordinate_system,
   _supports_basic_shaders = false;
   _supports_geometry_shaders = false;
   _supports_tessellation_shaders = false;
-  _supports_compute_shaders = false;
   _supports_glsl = false;
   _supports_hlsl = false;
+
+  _max_compute_work_group_count = LVecBase3i(0, 0, 0);
+  _max_compute_work_group_size = LVecBase3i(0, 0, 0);
+  _max_compute_work_group_invocations = 0;
 
   _supports_stencil = false;
   _supports_stencil_wrap = false;
@@ -573,6 +577,23 @@ update_texture(TextureContext *, bool) {
 }
 
 /**
+ * Ensures that the current Texture data is refreshed onto the GSG.  This
+ * means updating the texture properties and/or re-uploading the texture
+ * image, if necessary.  This should only be called within the draw thread.
+ *
+ * If force is true, this function will not return until the texture has been
+ * fully uploaded.  If force is false, the function may choose to upload a
+ * simple version of the texture instead, if the texture is not fully resident
+ * (and if get_incomplete_render() is true).
+ */
+bool GraphicsStateGuardian::
+update_texture(TextureContext *tc, bool force, CompletionToken token) {
+  bool result = update_texture(tc, force);
+  token.complete(result);
+  return result;
+}
+
+/**
  * Frees the resources previously allocated via a call to prepare_texture(),
  * including deleting the TextureContext itself, if it is non-NULL.
  */
@@ -743,6 +764,42 @@ release_shader_buffers(const pvector<BufferContext *> &contexts) {
   for (BufferContext *bc : contexts) {
     release_shader_buffer(bc);
   }
+}
+
+/**
+ * This method should only be called by the GraphicsEngine.  Do not call it
+ * directly; call GraphicsEngine::update_shader_buffer_data() instead.
+ *
+ * This method will be called in the draw thread to upload data to (a part of)
+ * the shader buffer from the CPU.  If data is null, clears the buffer instead.
+ */
+bool GraphicsStateGuardian::
+update_shader_buffer_data(ShaderBuffer *buffer, size_t start, size_t size,
+                          const unsigned char *data) {
+  return false;
+}
+
+/**
+ * This method should only be called by the GraphicsEngine.  Do not call it
+ * directly; call GraphicsEngine::extract_texture_data() instead.
+ *
+ * This method will be called in the draw thread to download the buffer's
+ * current contents synchronously.
+ */
+bool GraphicsStateGuardian::
+extract_shader_buffer_data(ShaderBuffer *buffer, vector_uchar &data,
+                           size_t start, size_t size) {
+  return false;
+}
+
+/**
+ * Asynchronous version of extract_shader_buffer_data.  It is the caller's
+ * responsibility that the data argument outlasts the token.
+ */
+void GraphicsStateGuardian::
+async_extract_shader_buffer_data(ShaderBuffer *buffer, vector_uchar &data,
+                                 size_t start, size_t size, CompletionToken token) {
+  token.complete(extract_shader_buffer_data(buffer, data, start, size));
 }
 
 /**
@@ -2463,7 +2520,7 @@ fetch_specified_texture(Shader::ShaderTexSpec &spec, SamplerState &sampler,
       return default_normal_height_tex;
     }
 
-  case Shader::STO_stage_selector_i:
+  case Shader::STO_stage_metallic_roughness_i:
     {
       const TextureAttrib *texattrib;
       if (_target_rs->get_attrib(texattrib)) {
@@ -2472,7 +2529,8 @@ fetch_specified_texture(Shader::ShaderTexSpec &spec, SamplerState &sampler,
           TextureStage *stage = texattrib->get_on_stage(i);
           TextureStage::Mode mode = stage->get_mode();
 
-          if (mode == TextureStage::M_selector) {
+          if (mode == TextureStage::M_metallic_roughness ||
+              mode == TextureStage::M_occlusion_metallic_roughness) {
             if (si++ == spec._stage) {
               sampler = texattrib->get_on_sampler(stage);
               view += stage->get_tex_view_offset();
@@ -2494,6 +2552,28 @@ fetch_specified_texture(Shader::ShaderTexSpec &spec, SamplerState &sampler,
           TextureStage::Mode mode = stage->get_mode();
 
           if (mode == TextureStage::M_emission) {
+            if (si++ == spec._stage) {
+              sampler = texattrib->get_on_sampler(stage);
+              view += stage->get_tex_view_offset();
+              return texattrib->get_on_texture(stage);
+            }
+          }
+        }
+      }
+    }
+    break;
+
+  case Shader::STO_stage_occlusion_i:
+    {
+      const TextureAttrib *texattrib;
+      if (_target_rs->get_attrib(texattrib)) {
+        int si = 0;
+        for (int i = 0; i < texattrib->get_num_on_stages(); ++i) {
+          TextureStage *stage = texattrib->get_on_stage(i);
+          TextureStage::Mode mode = stage->get_mode();
+
+          if (mode == TextureStage::M_occlusion ||
+              mode == TextureStage::M_occlusion_metallic_roughness) {
             if (si++ == spec._stage) {
               sampler = texattrib->get_on_sampler(stage);
               view += stage->get_tex_view_offset();
@@ -2748,6 +2828,7 @@ end_frame(Thread *current_thread) {
   _vertices_tri_pcollector.flush_level();
   _vertices_patch_pcollector.flush_level();
   _vertices_other_pcollector.flush_level();
+  _compute_work_groups_pcollector.flush_level();
 
   _state_pcollector.flush_level();
   _texture_state_pcollector.flush_level();
@@ -3396,6 +3477,7 @@ init_frame_pstats() {
     _vertices_tri_pcollector.clear_level();
     _vertices_patch_pcollector.clear_level();
     _vertices_other_pcollector.clear_level();
+    _compute_work_groups_pcollector.clear_level();
 
     _state_pcollector.clear_level();
     _transform_state_pcollector.clear_level();

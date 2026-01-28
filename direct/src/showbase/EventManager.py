@@ -1,21 +1,33 @@
 """Contains the EventManager class.  See :mod:`.EventManagerGlobal` for the
 global eventMgr instance."""
 
+from __future__ import annotations
+
 __all__ = ['EventManager']
 
 
+from typing import Any
+
 from direct.directnotify.DirectNotifyGlobal import directNotify
+from direct.directnotify.Notifier import Notifier
 from direct.task.TaskManagerGlobal import taskMgr
 from direct.showbase.MessengerGlobal import messenger
-from panda3d.core import PStatCollector, EventQueue, EventHandler
-from panda3d.core import ConfigVariableBool
+from panda3d.core import (
+    ConfigVariableBool,
+    Event,
+    EventHandler,
+    EventParameter,
+    EventQueue,
+    PStatCollector,
+    PythonTask,
+)
 
 
 class EventManager:
 
-    notify = None
+    notify: Notifier | None = None
 
-    def __init__(self, eventQueue = None):
+    def __init__(self, eventQueue: EventQueue | None = None) -> None:
         """
         Create a C++ event queue and handler
         """
@@ -24,11 +36,11 @@ class EventManager:
             EventManager.notify = directNotify.newCategory("EventManager")
 
         self.eventQueue = eventQueue
-        self.eventHandler = None
+        self.eventHandler: EventHandler | None = None
 
         self._wantPstats = ConfigVariableBool('pstats-eventmanager', False)
 
-    def doEvents(self):
+    def doEvents(self) -> None:
         """
         Process all the events on the C++ event queue
         """
@@ -38,12 +50,13 @@ class EventManager:
             processFunc = self.processEventPstats
         else:
             processFunc = self.processEvent
+        assert self.eventQueue is not None
         isEmptyFunc = self.eventQueue.isQueueEmpty
         dequeueFunc = self.eventQueue.dequeueEvent
         while not isEmptyFunc():
             processFunc(dequeueFunc())
 
-    def eventLoopTask(self, task):
+    def eventLoopTask(self, task: PythonTask) -> int:
         """
         Process all the events on the C++ event queue
         """
@@ -51,7 +64,7 @@ class EventManager:
         messenger.send("event-loop-done")
         return task.cont
 
-    def parseEventParameter(self, eventParameter):
+    def parseEventParameter(self, eventParameter: EventParameter) -> Any:
         """
         Extract the actual data from the eventParameter
         """
@@ -63,6 +76,8 @@ class EventManager:
             return eventParameter.getStringValue()
         elif eventParameter.isWstring():
             return eventParameter.getWstringValue()
+        elif hasattr(eventParameter, 'isBytes') and eventParameter.isBytes():
+            return eventParameter.getBytesValue()
         elif eventParameter.isTypedRefCount():
             return eventParameter.getTypedRefCountValue()
         elif eventParameter.isEmpty():
@@ -72,7 +87,7 @@ class EventManager:
             # which will be downcast to that type.
             return eventParameter.getPtr()
 
-    def processEvent(self, event):
+    def processEvent(self, event: Event) -> None:
         """
         Process a C++ event
         Duplicate any changes in processEventPstats
@@ -89,6 +104,7 @@ class EventManager:
                 paramList.append(eventParameterData)
 
             # Do not print the new frame debug, it is too noisy!
+            assert EventManager.notify is not None
             if EventManager.notify.getDebug() and eventName != 'NewFrame':
                 EventManager.notify.debug('received C++ event named: ' + eventName +
                                           ' parameters: ' + repr(paramList))
@@ -106,9 +122,10 @@ class EventManager:
 
         else:
             # An unnamed event from C++ is probably a bad thing
+            assert EventManager.notify is not None
             EventManager.notify.warning('unnamed event in processEvent')
 
-    def processEventPstats(self, event):
+    def processEventPstats(self, event: Event) -> None:
         """
         Process a C++ event with pstats tracking
         Duplicate any changes in processEvent
@@ -125,6 +142,7 @@ class EventManager:
                 paramList.append(eventParameterData)
 
             # Do not print the new frame debug, it is too noisy!
+            assert EventManager.notify is not None
             if EventManager.notify.getDebug() and eventName != 'NewFrame':
                 EventManager.notify.debug('received C++ event named: ' + eventName +
                                           ' parameters: ' + repr(paramList))
@@ -156,9 +174,10 @@ class EventManager:
 
         else:
             # An unnamed event from C++ is probably a bad thing
+            assert EventManager.notify is not None
             EventManager.notify.warning('unnamed event in processEvent')
 
-    def restart(self):
+    def restart(self) -> None:
         if self.eventQueue is None:
             self.eventQueue = EventQueue.getGlobalEventQueue()
 
@@ -173,7 +192,7 @@ class EventManager:
 
         taskMgr.add(self.eventLoopTask, 'eventManager')
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         taskMgr.remove('eventManager')
 
         # Flush the event queue.  We do this after removing the task

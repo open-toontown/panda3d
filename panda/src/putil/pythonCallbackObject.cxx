@@ -58,7 +58,18 @@ PythonCallbackObject(PyObject *function) {
  */
 PythonCallbackObject::
 ~PythonCallbackObject() {
+  // This may be called from the cull or draw thread, so we have to be sure we
+  // own the GIL.
+#if defined(HAVE_THREADS) && !defined(SIMPLE_THREADS)
+  PyGILState_STATE gstate;
+  gstate = PyGILState_Ensure();
+#endif
+
   Py_DECREF(_function);
+
+#if defined(HAVE_THREADS) && !defined(SIMPLE_THREADS)
+  PyGILState_Release(gstate);
+#endif
 }
 
 /**
@@ -118,16 +129,13 @@ void PythonCallbackObject::
 do_python_callback(CallbackData *cbdata) {
   nassertv(cbdata != nullptr);
 
-  // Wrap the cbdata up in a Python object, then put it in a tuple, for the
-  // argument list.
-  PyObject *pycbdata =
-    DTool_CreatePyInstanceTyped(cbdata, Dtool_TypedObject,
-                                false, false, cbdata->get_type_index());
-  PyObject *args = Py_BuildValue("(O)", pycbdata);
-  Py_DECREF(pycbdata);
+  // Wrap the cbdata up in a Python object.
+  PyObject *args[2];
+  args[1] = DTool_CreatePyInstanceTyped(cbdata, Dtool_TypedObject,
+                                        false, false, cbdata->get_type_index());
 
-  PyObject *result = PythonThread::call_python_func(_function, args);
-  Py_DECREF(args);
+  PyObject *result = PythonThread::call_python_func(_function, args + 1, 1 | PY_VECTORCALL_ARGUMENTS_OFFSET);
+  Py_DECREF(args[1]);
 
   if (result == nullptr) {
     if (PyErr_Occurred() != PyExc_SystemExit) {
