@@ -3085,6 +3085,15 @@ reset() {
 }
 
 /**
+ * Ensures that the context is current.  May return false if the context cannot
+ * be bound without a window.
+ */
+bool GraphicsStateGuardian::
+make_current() {
+  return false;
+}
+
+/**
  * Simultaneously resets the render state and the transform state.
  *
  * This transform specified is the "internal" net transform, already converted

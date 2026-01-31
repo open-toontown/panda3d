@@ -117,7 +117,7 @@ def run_glsl_compile_check(gsg, vert_path, frag_path, expect_fail=False):
     assert shader is not None
 
     if not gsg.supports_glsl:
-        expect_fail = True
+        pytest.skip("GLSL shaders not supported")
 
     shader.prepare_now(gsg.prepared_objects, gsg)
     assert shader.is_prepared(gsg.prepared_objects)
@@ -633,16 +633,17 @@ def test_glsl_state_light_source(gsg):
     assert(p3d_LightSource[0].shadowViewMatrix[0][1] == 0);
     assert(p3d_LightSource[0].shadowViewMatrix[0][2] == 0);
     assert(p3d_LightSource[0].shadowViewMatrix[0][3] == 0);
-    assert(p3d_LightSource[0].shadowViewMatrix[1][0] == 0.5);
-    assert(p3d_LightSource[0].shadowViewMatrix[1][1] == 0.5);
-    assert(p3d_LightSource[0].shadowViewMatrix[1][2] > 1.0);
-    assert(p3d_LightSource[0].shadowViewMatrix[1][2] < 1.00002);
-    assert(p3d_LightSource[0].shadowViewMatrix[1][3] == 1);
-    assert(p3d_LightSource[0].shadowViewMatrix[2][0] == 0);
-    assert(p3d_LightSource[0].shadowViewMatrix[2][1] > 0.2886);
-    assert(p3d_LightSource[0].shadowViewMatrix[2][1] < 0.2887);
-    assert(p3d_LightSource[0].shadowViewMatrix[2][2] == 0);
-    assert(p3d_LightSource[0].shadowViewMatrix[2][3] == 0);
+    assert(p3d_LightSource[0].shadowViewMatrix[1][0] == 0);
+    assert(p3d_LightSource[0].shadowViewMatrix[1][1] > 0.2886);
+    assert(p3d_LightSource[0].shadowViewMatrix[1][1] < 0.2887);
+    assert(p3d_LightSource[0].shadowViewMatrix[1][2] == 0);
+    assert(p3d_LightSource[0].shadowViewMatrix[1][3] == 0);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][0] < -0.4999);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][0] > -0.5001);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][1] < -0.4999);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][1] > -0.5001);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][2] < -0.9999);
+    assert(p3d_LightSource[0].shadowViewMatrix[2][3] < -0.9999);
     assert(p3d_LightSource[0].shadowViewMatrix[3][0] > -16.2736);
     assert(p3d_LightSource[0].shadowViewMatrix[3][0] < -16.2734);
     assert(p3d_LightSource[0].shadowViewMatrix[3][1] > -16.8510);

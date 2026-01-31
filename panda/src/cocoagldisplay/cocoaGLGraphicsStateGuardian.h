@@ -39,6 +39,8 @@ public:
 
   virtual ~CocoaGLGraphicsStateGuardian();
 
+  virtual bool make_current();
+
   INLINE void lock_context();
   INLINE void unlock_context();
 

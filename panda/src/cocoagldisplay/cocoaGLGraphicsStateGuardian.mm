@@ -298,6 +298,18 @@ choose_pixel_format(const FrameBufferProperties &properties,
 }
 
 /**
+ * Ensures that the context is current.  May return false if the context cannot
+ * be bound without a window.
+ */
+bool CocoaGLGraphicsStateGuardian::
+make_current() {
+  lock_context();
+  [_context makeCurrentContext];
+  unlock_context();
+  return true;
+}
+
+/**
  * Queries the runtime version of OpenGL in use.
  */
 void CocoaGLGraphicsStateGuardian::

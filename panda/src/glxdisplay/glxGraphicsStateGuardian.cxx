@@ -435,6 +435,19 @@ choose_pixel_format(const FrameBufferProperties &properties,
 }
 
 /**
+ * Ensures that the context is current.  May return false if the context cannot
+ * be bound without a window.
+ */
+bool glxGraphicsStateGuardian::
+make_current() {
+  if (glXGetCurrentContext() == _context) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Returns true if the runtime GLX version number is at least the indicated
  * value, false otherwise.
  */
@@ -570,6 +583,18 @@ do_get_extension_func(const char *name) {
 
   // Otherwise, fall back to the OS-provided calls.
   return PosixGraphicsStateGuardian::do_get_extension_func(name);
+}
+
+/**
+ * Returns true if this implementation may support Cg shaders.
+ */
+bool glxGraphicsStateGuardian::
+may_support_cg_shaders() {
+#ifdef HAVE_CG
+  return true;
+#else
+  return false;
+#endif
 }
 
 /**

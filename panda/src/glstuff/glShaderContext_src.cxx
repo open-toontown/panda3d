@@ -413,7 +413,8 @@ CLP(ShaderContext)(CLP(GraphicsStateGuardian) *glgsg, Shader *s) : ShaderContext
   _glgsg->report_my_gl_errors();
 
   // Restore the active shader.
-  if (_glgsg->_current_shader_context == nullptr) {
+  if (_glgsg->_current_shader_context == nullptr ||
+      !_glgsg->_current_shader_context->valid()) {
     _glgsg->_glUseProgram(0);
   } else {
     _glgsg->_current_shader_context->bind(_glgsg);
@@ -2185,7 +2186,7 @@ release_resources() {
  */
 bool CLP(ShaderContext)::
 valid() {
-  if (_shader->get_error_flag()) {
+  if (_shader == nullptr || _shader->get_error_flag()) {
     return false;
   }
   return (_glsl_program != 0);
@@ -2197,6 +2198,8 @@ valid() {
  */
 void CLP(ShaderContext)::
 bind(GraphicsStateGuardian *gsg) {
+  nassertv(_shader != nullptr);
+
   CLP(GraphicsStateGuardian) *glgsg = (CLP(GraphicsStateGuardian) *)gsg;
   _glgsg = glgsg;
 
@@ -3314,6 +3317,9 @@ glsl_compile_and_link() {
   _glsl_shaders.clear();
   _glsl_program = _glgsg->_glCreateProgram();
   if (!_glsl_program) {
+    // If this happens, check whether you have a current GL context
+    GLCAT.error()
+      << "Failed to create GLSL program object\n";
     return false;
   }
 

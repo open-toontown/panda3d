@@ -2059,7 +2059,8 @@ reset() {
   // Check for support for other types of shaders that can be used by Cg.
   _supports_basic_shaders = false;
 #if defined(HAVE_CG) && !defined(OPENGLES)
-  if (has_extension("GL_ARB_vertex_program") &&
+  if (may_support_cg_shaders() &&
+      has_extension("GL_ARB_vertex_program") &&
       has_extension("GL_ARB_fragment_program")) {
     _supports_basic_shaders = true;
     _shader_caps._active_vprofile = (int)CG_PROFILE_ARBVP1;
@@ -3997,8 +3998,8 @@ reset() {
   }
   _auto_detect_shader_model = _shader_model;
 
-  if (GLCAT.is_debug()) {
 #ifdef HAVE_CG
+  if (GLCAT.is_debug() && may_support_cg_shaders()) {
 #if CG_VERSION_NUM >= 2200
     GLCAT.debug() << "Supported Cg profiles:\n";
     int num_profiles = cgGetNumSupportedProfiles();
@@ -4036,8 +4037,10 @@ reset() {
     GLCAT.debug()
       << "Cg active geometry profile = "
       << cgGetProfileString((CGprofile)_shader_caps._active_gprofile) << "\n";
+  }
 #endif  // HAVE_CG
 
+  if (GLCAT.is_debug()) {
     GLCAT.debug() << "shader model = " << _shader_model << "\n";
   }
 #endif  // !OPENGLES
@@ -7027,6 +7030,22 @@ prepare_shader(Shader *se) {
 void CLP(GraphicsStateGuardian)::
 release_shader(ShaderContext *sc) {
 #ifndef OPENGLES_1
+  if (_vertex_array_shader_context == sc) {
+    _vertex_array_shader = nullptr;
+    _vertex_array_shader_context = nullptr;
+  }
+
+  if (_texture_binding_shader_context == sc) {
+    _texture_binding_shader = nullptr;
+    _texture_binding_shader_context = nullptr;
+  }
+
+  if (_current_shader_context == sc) {
+    sc->unbind();
+    _current_shader = nullptr;
+    _current_shader_context = nullptr;
+  }
+
   if (sc->is_of_type(CLP(ShaderContext)::get_class_type())) {
     ((CLP(ShaderContext) *)sc)->release_resources();
   }
@@ -7035,7 +7054,7 @@ release_shader(ShaderContext *sc) {
     ((CLP(CgShaderContext) *)sc)->release_resources();
   }
 #endif
-#endif
+#endif  // !OPENGLES_1
 
   delete sc;
 }
@@ -10234,6 +10253,18 @@ get_extension_func(const char *name) {
 void *CLP(GraphicsStateGuardian)::
 do_get_extension_func(const char *) {
   return nullptr;
+}
+
+/**
+ * Returns true if this implementation may support Cg shaders.
+ */
+bool CLP(GraphicsStateGuardian)::
+may_support_cg_shaders() {
+#if defined(HAVE_CG) && !defined(OPENGLES)
+  return true;
+#else
+  return false;
+#endif
 }
 
 /**
